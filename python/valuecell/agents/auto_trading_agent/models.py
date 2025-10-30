@@ -13,6 +13,7 @@ from .constants import (
     DEFAULT_RISK_PER_TRADE,
     MAX_SYMBOLS,
 )
+from .exchanges import ExchangeType
 
 
 class TradeAction(str, Enum):
@@ -36,6 +37,10 @@ class TradingRequest(BaseModel):
     crypto_symbols: List[str] = Field(
         ...,
         description="List of crypto symbols to trade (e.g., ['BTC-USD', 'ETH-USD'])",
+    )
+    exchange: Optional[str] = Field(
+        default=None,
+        description="Preferred exchange for execution (e.g., okx, paper)",
     )
     initial_capital: Optional[float] = Field(
         default=DEFAULT_INITIAL_CAPITAL,
@@ -61,11 +66,26 @@ class TradingRequest(BaseModel):
         # Normalize symbols to uppercase
         return [s.upper() for s in v]
 
+    @field_validator("exchange")
+    @classmethod
+    def validate_exchange(cls, v):
+        if v is None:
+            return v
+        normalized = v.lower()
+        allowed = {e.value for e in ExchangeType}
+        if normalized not in allowed:
+            raise ValueError(f"Unsupported exchange '{v}'. Supported: {sorted(allowed)}")
+        return normalized
+
 
 class AutoTradingConfig(BaseModel):
     """Configuration for auto trading agent"""
 
     initial_capital: float = Field(..., description="Initial capital for trading", gt=0)
+    exchange: ExchangeType = Field(
+        default=ExchangeType.PAPER,
+        description="Target exchange for order execution",
+    )
     crypto_symbols: List[str] = Field(
         ...,
         description="List of crypto symbols to trade (max 10)",
@@ -99,6 +119,20 @@ class AutoTradingConfig(BaseModel):
         default=False,
         description="Whether to use AI model for enhanced signal generation",
     )
+
+    @field_validator("exchange", mode="before")
+    @classmethod
+    def validate_exchange_type(cls, v):
+        if v is None or v == "":
+            return ExchangeType.PAPER
+        if isinstance(v, ExchangeType):
+            return v
+        try:
+            return ExchangeType(str(v).lower())
+        except ValueError as exc:
+            raise ValueError(
+                f"Unsupported exchange '{v}'. Valid options: {[e.value for e in ExchangeType]}"
+            ) from exc
 
     @field_validator("crypto_symbols")
     @classmethod

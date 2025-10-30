@@ -8,8 +8,10 @@ import "./global.css";
 import { SidebarProvider } from "./components/ui/sidebar";
 
 export function Layout({ children }: { children: React.ReactNode }) {
+  const htmlLang =
+    (import.meta.env.VITE_USER_LANGUAGE as string | undefined) || "zh-Hans";
   return (
-    <html lang="en">
+    <html lang={htmlLang}>
       <head>
         <meta charSet="UTF-8" />
         <link rel="icon" type="image/svg+xml" href="/logo.svg" />

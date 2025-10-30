@@ -59,6 +59,17 @@ class MessageFormatter:
                     f"Net P&L: {pnl_sign}${pnl:,.2f}"
                 )
 
+            if exchange_order_id := trade_details.get("exchange_order_id"):
+                status = trade_details.get("exchange_status", "submitted")
+                exchange_symbol = trade_details.get("exchange_symbol")
+                exchange_price = trade_details.get("exchange_price")
+                message += "\n"
+                message += f"Exchange Order: #{exchange_order_id} ({status})"
+                if exchange_symbol:
+                    message += f"\nExchange Symbol: {exchange_symbol}"
+                if exchange_price is not None:
+                    message += f"\nExecuted Price: ${float(exchange_price):,.2f}"
+
             return message
 
         except Exception as e:

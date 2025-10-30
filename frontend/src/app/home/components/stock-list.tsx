@@ -54,7 +54,7 @@ function StockList() {
 
   return (
     <StockMenu>
-      <StockMenuHeader>My Stocks</StockMenuHeader>
+      <StockMenuHeader>我的自选</StockMenuHeader>
       <ScrollContainer>
         {stockData?.map((group) => (
           <StockMenuGroup key={group.title}>

@@ -15,7 +15,7 @@ export default function AgentMarket() {
     <div className="flex size-full flex-col items-center justify-start gap-8 pt-8">
       {/* Page Title */}
       <h1 className="w-full text-center font-medium text-3xl leading-7">
-        Agent Market
+        智能体市场
       </h1>
 
       {/* Agent Cards Grid */}

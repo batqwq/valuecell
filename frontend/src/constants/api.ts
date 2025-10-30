@@ -39,7 +39,10 @@ export const API_QUERY_KEYS = {
 } as const;
 
 /**
- * Temporary language setting
- * @description This is a temporary language setting for the API.
+ * UI/API language
+ * Priority: VITE_USER_LANGUAGE env > browser language > zh-Hans
  */
-export const USER_LANGUAGE = "en-US";
+export const USER_LANGUAGE =
+  (import.meta.env.VITE_USER_LANGUAGE as string | undefined) ||
+  (typeof navigator !== "undefined" ? navigator.language : undefined) ||
+  "zh-Hans";

@@ -139,13 +139,13 @@ const AppSidebar: FC = () => {
         {
           id: "home",
           icon: Logo,
-          label: "Home",
+          label: "首页",
           to: "/home",
         },
         {
           id: "market",
           icon: ChartBarVertical,
-          label: "Market",
+          label: "市场",
           to: "/market",
         },
       ],
@@ -153,7 +153,7 @@ const AppSidebar: FC = () => {
         {
           id: "setting",
           icon: Setting,
-          label: "Setting",
+          label: "设置",
           to: "/setting",
         },
       ],

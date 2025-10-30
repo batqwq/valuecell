@@ -2,6 +2,8 @@ import asyncio
 import json
 import logging
 from dataclasses import dataclass
+import sys
+import os
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -35,6 +37,9 @@ class AgentContext:
     desired_listener_host: Optional[str] = None
     desired_listener_port: Optional[int] = None
     notification_callback: Optional[NotificationCallbackType] = None
+    # Local spawn state (to auto-start built-in agents when URL is localhost)
+    spawn_attempted: bool = False
+    last_spawn_pid: Optional[int] = None
 
 
 class RemoteConnections:
@@ -200,6 +205,21 @@ class RemoteConnections:
             except Exception:
                 pass
             logger.error(f"Failed to initialize client for '{ctx.name}' at {url}: {e}")
+
+            # Auto-spawn built-in local agents when URL points to localhost
+            try:
+                host, _ = self._parse_host_port(url)
+            except Exception:
+                host = None
+
+            if host in {"localhost", "127.0.0.1"} and not ctx.spawn_attempted:
+                if await self._try_spawn_local_agent(ctx):
+                    # Give the server a moment to start
+                    await asyncio.sleep(1.2)
+                    # Retry once
+                    await self._ensure_client(ctx)
+                    return
+            # Re-raise original error if spawn not applicable or retry still failed
             raise
 
     async def _start_listener(
@@ -249,6 +269,63 @@ class RemoteConnections:
         raise ValueError(
             f"Agent '{agent_name}' not found (neither local nor remote config)"
         )
+
+    # ---------------------- helpers ----------------------
+    @staticmethod
+    def _parse_host_port(url: str) -> tuple[Optional[str], Optional[int]]:
+        from urllib.parse import urlsplit
+
+        parsed = urlsplit(url if "://" in url else "//" + url)
+        return parsed.hostname, parsed.port
+
+    async def _try_spawn_local_agent(self, ctx: AgentContext) -> bool:
+        """Best-effort start for built-in agents in a subprocess.
+
+        Only attempts once per process to避免重复拉起。返回 True 表示已尝试启动。
+        """
+        module_map = {
+            "AutoTradingAgent": "valuecell.agents.auto_trading_agent",
+            "ResearchAgent": "valuecell.agents.research_agent",
+        }
+        module = module_map.get(ctx.name)
+        if not module:
+            return False
+
+        ctx.spawn_attempted = True
+        try:
+            # Use same Python interpreter and environment
+            python_exe = sys.executable or "python"
+            # Prefer running from the python project dir for clarity
+            try:
+                project_py_dir = Path(__file__).resolve().parents[3]  # repo/python
+            except Exception:
+                project_py_dir = None
+
+            env = os.environ.copy()
+            # If .env path is set in VALUECELL_ENV_FILE, pass it (optional)
+            # But module本身不依赖 uv，可直接读取进程环境
+
+            cmd = [python_exe, "-m", module]
+            logger.info(f"Auto-starting local agent '{ctx.name}' via: {' '.join(cmd)}")
+            # Log file
+            base_dir = os.getenv("VALUECELL_LOG_DIR", os.path.join(os.getcwd(), "logs"))
+            os.makedirs(os.path.join(base_dir, "agents"), exist_ok=True)
+            log_path = os.path.join(base_dir, "agents", f"{ctx.name}.autospawn.log")
+            log_f = open(log_path, "a", buffering=1)
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                cwd=str(project_py_dir) if project_py_dir else None,
+                env=env,
+                stdout=log_f,
+                stderr=log_f,
+            )
+            log_f.close()
+            ctx.last_spawn_pid = proc.pid
+            # 不等待子进程退出，只给一点时间在 _ensure_client 里重试
+            return True
+        except Exception as spawn_err:
+            logger.error(f"Failed to auto-start local agent '{ctx.name}': {spawn_err}")
+            return False
 
     async def _cleanup_agent(self, agent_name: str):
         """Clean up all resources for an agent"""

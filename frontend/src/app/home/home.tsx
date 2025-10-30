@@ -49,10 +49,8 @@ function Home() {
       ) : (
         <section className="flex flex-1 flex-col items-center justify-center gap-8 rounded-lg bg-white py-8">
           <div className="space-y-4 text-center text-gray-950">
-            <h1 className="font-medium text-3xl">👋 Hello Investor!</h1>
-            <p>
-              You can analyze and track the stock information you want to know
-            </p>
+            <h1 className="font-medium text-3xl">👋 你好，投资者！</h1>
+            <p>在这里你可以分析并跟踪所有感兴趣的股票与加密资产信息。</p>
           </div>
 
           <ChatInputArea

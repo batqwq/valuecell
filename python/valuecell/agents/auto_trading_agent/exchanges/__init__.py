@@ -7,9 +7,11 @@ Adapters:
 - ExchangeBase: Abstract base class defining the exchange interface
 - PaperTrading: Simulated trading (default)
 - BinanceExchange: Live trading on Binance (requires API keys)
+- OkxExchange: Live trading on OKX (requires API keys)
 """
 
 from .base_exchange import ExchangeBase, ExchangeType, OrderStatus
+from .okx_exchange import OkxExchange
 from .paper_trading import PaperTrading
 
 __all__ = [
@@ -17,4 +19,5 @@ __all__ = [
     "ExchangeType",
     "OrderStatus",
     "PaperTrading",
+    "OkxExchange",
 ]

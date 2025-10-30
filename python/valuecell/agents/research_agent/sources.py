@@ -12,12 +12,19 @@ from edgar.entity.filings import EntityFilings
 
 from valuecell.utils.path import get_knowledge_path
 
-from .knowledge import insert_md_file_to_knowledge, insert_pdf_file_to_knowledge
+from .knowledge import (
+    insert_md_file_to_knowledge,
+    insert_pdf_file_to_knowledge,
+)
 from .schemas import (
     AShareFilingMetadata,
     AShareFilingResult,
     SECFilingMetadata,
     SECFilingResult,
+)
+from valuecell.agents.research_agent.search_x_agent import (
+    fetch_market_update as _fetch_market_update,
+    write_update_to_knowledge as _write_update_to_knowledge,
 )
 
 
@@ -690,3 +697,43 @@ async def fetch_ashare_filings(
     # Write to files and import to knowledge base
     knowledge_dir = Path(get_knowledge_path())
     return await _write_and_ingest_ashare(filings_data, knowledge_dir)
+async def searchXagent(
+    custom_query: Optional[str] = None,
+    immediate: bool = True,
+) -> str:
+    """Search credible, non-duplicate crypto market updates via Grok-4-Fast.
+
+    This tool is intended for ResearchAgent, Planner, and SEC analysis flows.
+    It acts strictly as an information search engine and must not provide any
+    investment advice. Results are written into the knowledge base for later use.
+
+    Args:
+        custom_query: Optional query refinement (e.g., focus on BTC ETFs).
+        immediate: If True, executes now; otherwise acknowledges and relies
+                   on the periodic 10-minute watcher to capture updates.
+
+    Returns:
+        A short status message with either storage path (immediate) or queue ack.
+    """
+
+    base_prompt = os.getenv("SEARCH_X_AGENT_PROMPT") or (
+        "Summarize only the most credible, non-duplicate cryptocurrency market updates "
+        "from X (Twitter) and the broader internet. Prioritize sources with strong "
+        "track records, cross-check data before reporting, remove rumors or redundant "
+        "items, and cover price moves, key tweets, regulatory changes, whales, DeFi "
+        "metrics, and macro drivers. For each unique finding, include timestamp, source "
+        "handle/URL, and expected impact within 24 hours."
+    )
+    prompt = base_prompt
+    if custom_query:
+        prompt = f"{base_prompt}\n\nFocus: {custom_query}"
+
+    if not immediate:
+        return (
+            "searchXagent acknowledged. It will be picked up by the periodic 10-minute "
+            "watcher to keep knowledge up-to-date."
+        )
+
+    summary = await _fetch_market_update(prompt)
+    path = await _write_update_to_knowledge(summary)
+    return f"searchXagent stored update at: {path.as_posix()}"

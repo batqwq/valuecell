@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 from collections import deque
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Deque, Dict, List, Optional
@@ -25,6 +26,7 @@ from .constants import (
     ENV_PARSER_MODEL_ID,
     ENV_SIGNAL_MODEL_ID,
 )
+from .exchanges import ExchangeBase, ExchangeType, OkxExchange, PaperTrading
 from .formatters import MessageFormatter
 from .models import (
     AutoTradingConfig,
@@ -83,6 +85,66 @@ class AutoTradingAgent(BaseAgent):
         except Exception as e:
             logger.error(f"Failed to initialize Auto Trading Agent: {e}")
             raise
+
+    def _create_exchange_adapter(
+        self, config: AutoTradingConfig
+    ) -> Optional[ExchangeBase]:
+        """
+        Create exchange adapter based on agent configuration.
+
+        Returns:
+            Exchange adapter instance or None if configuration is invalid.
+        """
+        if config.exchange == ExchangeType.PAPER:
+            return PaperTrading(initial_balance=config.initial_capital)
+
+        if config.exchange == ExchangeType.OKX:
+            api_key = os.getenv("OKX_API_KEY")
+            api_secret = os.getenv("OKX_SECRET")
+            passphrase = os.getenv("OKX_PASSPHRASE")
+
+            if not api_key or not api_secret or not passphrase:
+                logger.error(
+                    "OKX exchange selected but API credentials are missing. "
+                    "Please set OKX_API_KEY, OKX_SECRET, and OKX_PASSPHRASE."
+                )
+                return None
+
+            sandbox = os.getenv("OKX_SANDBOX", "false").strip().lower() == "true"
+            default_type = os.getenv("OKX_DEFAULT_TYPE", "spot").strip().lower()
+            leverage_str = os.getenv("OKX_LEVERAGE", "").strip()
+            margin_mode = os.getenv("OKX_MARGIN_MODE", "").strip().lower() or None
+
+            leverage: Optional[int]
+            if leverage_str:
+                try:
+                    leverage = int(leverage_str)
+                except ValueError:
+                    logger.warning(
+                        "Invalid OKX_LEVERAGE value '%s'. Falling back to default.",
+                        leverage_str,
+                    )
+                    leverage = None
+            else:
+                leverage = None
+
+            try:
+                adapter = OkxExchange(
+                    api_key=api_key,
+                    api_secret=api_secret,
+                    passphrase=passphrase,
+                    sandbox=sandbox,
+                    default_type=default_type,
+                    leverage=leverage,
+                    margin_mode=margin_mode,
+                )
+                return adapter
+            except Exception as exc:
+                logger.error("Failed to create OKX adapter: %s", exc)
+                return None
+
+        logger.warning("Unsupported exchange %s, falling back to None", config.exchange)
+        return None
 
     async def _process_trading_instance(
         self,
@@ -254,7 +316,7 @@ class AutoTradingAgent(BaseAgent):
                             continue
 
                         # Execute trade
-                        trade_details = executor.execute_trade(
+                        trade_details = await executor.execute_trade(
                             symbol, action, trade_type, asset_analysis.indicators
                         )
 
@@ -457,10 +519,89 @@ class AutoTradingAgent(BaseAgent):
             """
 
             response = await self.parser_agent.arun(parse_prompt)
-            trading_request = response.content
+            raw = getattr(response, "content", response)
 
-            logger.info(f"Parsed trading request: {trading_request}")
+            # Normalize to dict from JSON-like text
+            data = None
+            if isinstance(raw, dict):
+                data = raw
+            elif isinstance(raw, str):
+                text = raw.strip()
+                # Strip markdown code fences if present
+                if text.startswith("```"):
+                    text = re.sub(r"^```[a-zA-Z0-9_\-]*\n|```$", "", text).strip()
+                # Extract JSON object boundaries if extra text exists
+                if "{" in text and "}" in text:
+                    text = text[text.find("{") : text.rfind("}") + 1]
+                # Try strict JSON
+                try:
+                    data = json.loads(text)
+                except Exception:
+                    # Heuristic: replace single quotes and trailing commas
+                    try:
+                        text2 = re.sub(r",\s*([}\]])", r"\1", text.replace("'", '"'))
+                        data = json.loads(text2)
+                    except Exception:
+                        data = None
+
+            if not isinstance(data, dict):
+                raise ValueError("Parser did not return a valid JSON object")
+
+            # Accept both agent_model (str) and agent_models (list)
+            if "agent_models" not in data and "agent_model" in data:
+                am = data.pop("agent_model")
+                data["agent_models"] = [am] if isinstance(am, str) else list(am or [])
+
+            # Normalize crypto_symbols: allow comma-separated string
+            cs = data.get("crypto_symbols")
+            if isinstance(cs, str):
+                data["crypto_symbols"] = [s.strip() for s in cs.split(",") if s.strip()]
+
+            # Build and validate TradingRequest
+            trading_request = TradingRequest(**data)
+            logger.info(f"Parsed trading request (structured): {trading_request}")
             return trading_request
+
+    @staticmethod
+    def _has_trading_intent(query: str) -> bool:
+        """Heuristic check to determine whether text expresses trading intent."""
+
+        lowered = query.lower()
+        keywords = [
+            "trade",
+            "trading",
+            "buy",
+            "sell",
+            "下单",
+            "交易",
+            "开仓",
+            "平仓",
+            "买入",
+            "卖出",
+            "实盘",
+            "真仓",
+            "模拟",
+            "paper",
+            "okx",
+            "止损",
+            "加仓",
+        ]
+        if any(k in lowered for k in keywords):
+            return True
+
+        # Symbol patterns such as BTC-USD or ETH-USDT
+        if re.search(r"\b[A-Z]{2,10}-(USD|USDT)\b", query, re.IGNORECASE):
+            return True
+
+        # Coin tickers without suffix (BTC, ETH, SOL, etc.)
+        if re.search(
+            r"\b(BTC|ETH|SOL|DOGE|OKB|XRP|LTC|BNB|ADA|MATIC|TON|SUI|AVAX)\b",
+            query,
+            re.IGNORECASE,
+        ):
+            return True
+
+        return False
 
         except Exception as e:
             logger.error(f"Failed to parse trading request: {e}")
@@ -757,8 +898,21 @@ class AutoTradingAgent(BaseAgent):
         if instance_id:
             # Stop specific instance
             if instance_id in self.trading_instances[session_id]:
-                self.trading_instances[session_id][instance_id]["active"] = False
-                executor = self.trading_instances[session_id][instance_id]["executor"]
+                instance = self.trading_instances[session_id][instance_id]
+                instance["active"] = False
+                executor: TradingExecutor = instance["executor"]
+                exchange_adapter: Optional[ExchangeBase] = instance.get(
+                    "exchange_adapter"
+                )
+                if exchange_adapter:
+                    try:
+                        await exchange_adapter.disconnect()
+                    except Exception as exc:
+                        logger.warning(
+                            "Failed to disconnect exchange adapter for %s: %s",
+                            instance_id,
+                            exc,
+                        )
                 portfolio_value = executor.get_portfolio_value()
 
                 yield streaming.message_chunk(
@@ -775,7 +929,20 @@ class AutoTradingAgent(BaseAgent):
             # Stop all instances in this session
             count = 0
             for inst_id in self.trading_instances[session_id]:
-                self.trading_instances[session_id][inst_id]["active"] = False
+                instance = self.trading_instances[session_id][inst_id]
+                instance["active"] = False
+                exchange_adapter: Optional[ExchangeBase] = instance.get(
+                    "exchange_adapter"
+                )
+                if exchange_adapter:
+                    try:
+                        await exchange_adapter.disconnect()
+                    except Exception as exc:
+                        logger.warning(
+                            "Failed to disconnect exchange adapter for %s: %s",
+                            inst_id,
+                            exc,
+                        )
                 count += 1
 
             yield streaming.message_chunk(
@@ -812,6 +979,7 @@ class AutoTradingAgent(BaseAgent):
             status_message += (
                 f"**Instance:** `{instance_id}`  {status}\n"
                 f"- Model: {config.agent_model}\n"
+                f"- Exchange: {config.exchange.value.upper()}\n"
                 f"- Symbols: {', '.join(config.crypto_symbols)}\n"
                 f"- Portfolio Value: ${portfolio_value:,.2f}\n"
                 f"- P&L: ${total_pnl:,.2f}\n"
@@ -821,6 +989,70 @@ class AutoTradingAgent(BaseAgent):
             )
 
         logger.info(f"Status message: {status_message}")
+
+    async def _handle_switch_exchange_command(
+        self, session_id: str, target: str
+    ) -> AsyncGenerator[StreamResponse, None]:
+        """Switch exchange adapter for all active instances in a session.
+
+        Args:
+            session_id: Current session identifier
+            target: Target exchange string (e.g., 'paper', 'okx')
+        """
+        target = (target or "").strip().lower()
+        valid = {e.value: e for e in ExchangeType}
+        if target not in valid:
+            yield streaming.failed(
+                f"不支持的交易所/模式: {target}. 可选: {', '.join(valid.keys())}"
+            )
+            return
+
+        target_ex = valid[target]
+
+        if session_id not in self.trading_instances or not self.trading_instances[session_id]:
+            yield streaming.message_chunk(
+                f"当前会话没有运行中的交易实例。切换默认模式为 {target_ex.value.upper()} 只会影响新建实例。"
+            )
+            return
+
+        count = 0
+        success = 0
+        for inst_id, instance in self.trading_instances[session_id].items():
+            count += 1
+            try:
+                config: AutoTradingConfig = instance["config"]
+                executor: TradingExecutor = instance["executor"]
+
+                # Replace adapter
+                config.exchange = target_ex
+                new_adapter = self._create_exchange_adapter(config)
+                if new_adapter:
+                    try:
+                        await new_adapter.connect()
+                    except Exception as exc:
+                        logger.error("Failed to connect new adapter for %s: %s", inst_id, exc)
+                        new_adapter = None
+
+                # Disconnect old adapter
+                old_adapter = instance.get("exchange_adapter")
+                if old_adapter:
+                    try:
+                        await old_adapter.disconnect()
+                    except Exception:
+                        pass
+
+                # Apply
+                instance["exchange_adapter"] = new_adapter
+                executor.exchange = new_adapter
+                success += 1
+
+            except Exception as exc:
+                logger.error("切换实例 %s 交易所失败: %s", inst_id, exc)
+
+        yield streaming.message_chunk(
+            f"🔄 已切换 {success}/{count} 个实例到: {target_ex.value.upper()}。新下单将实时生效。"
+        )
+        return
 
     async def stream(
         self,
@@ -860,6 +1092,35 @@ class AutoTradingAgent(BaseAgent):
                     yield response
                 return
 
+            # Handle switch exchange commands
+            if (
+                query_lower.startswith("switch_exchange")
+                or query_lower.startswith("exchange ")
+                or query_lower.startswith("切换交易所")
+                or query_lower.startswith("切换 ")
+                or query_lower in {"paper", "okx", "真仓", "实盘", "模拟", "模拟盘"}
+            ):
+                # Extract target token
+                cleaned = (
+                    query_lower.replace("切换交易所", "")
+                    .replace("switch_exchange", "")
+                    .replace("exchange", "")
+                    .replace("切换", "")
+                    .strip()
+                )
+                parts = cleaned.split()
+                target = parts[0] if parts else query_lower
+                # Map Chinese synonyms
+                if target in {"真仓", "实盘", "live"}:
+                    target = "okx"
+                if target in {"模拟", "模拟盘", "paper"}:
+                    target = "paper"
+                async for response in self._handle_switch_exchange_command(
+                    session_id, target
+                ):
+                    yield response
+                return
+
             # Handle status query commands
             if any(
                 cmd in query_lower.split()
@@ -869,17 +1130,28 @@ class AutoTradingAgent(BaseAgent):
                     yield response
                 return
 
+            if not self._has_trading_intent(query):
+                logger.info("Detected non-trading intent message; skipping trading flow.")
+                yield streaming.message_chunk(
+                    "🤖 我是自动交易助手。如需发起交易，请提供交易品种、资金规模及交易模式，例如：\n"
+                    "“使用 100000 美元在 OKX 交易 BTC-USD，开启 AI 信号”。\n"
+                    "若想进行普通咨询，请改用 ResearchAgent 或网页端的其他模块。"
+                )
+                return
+
             # Parse natural language query to extract trading configuration
-            yield streaming.message_chunk("🔍 **Parsing trading request...**\n\n")
+            yield streaming.message_chunk("🔍 **解析交易请求...**\n\n")
 
             try:
                 trading_request = await self._parse_trading_request(query)
                 logger.info(f"Parsed request: {trading_request}")
             except Exception as e:
                 logger.error(f"Failed to parse trading request: {e}")
-                yield streaming.failed(
-                    "**Parse Error**: Could not parse trading configuration from your query. "
-                    "Please specify cryptocurrency symbols (e.g., 'Trade Bitcoin and Ethereum')."
+                yield streaming.message_chunk(
+                    (
+                        "⚠️ 我未能识别出完整的交易配置。请说明要交易的币种（例如 BTC-USD）、"
+                        "投入资金以及是否开启 AI 信号。"
+                    )
                 )
                 return
 
@@ -902,16 +1174,45 @@ class AutoTradingAgent(BaseAgent):
                 # Generate unique instance ID for this model
                 instance_id = self._generate_instance_id(task_id, model_id)
 
+                # Determine exchange preference (request override > environment)
+                exchange_pref = (
+                    trading_request.exchange
+                    if trading_request.exchange is not None
+                    else os.getenv("EXCHANGE", ExchangeType.PAPER.value)
+                )
+                try:
+                    exchange_type = ExchangeType(str(exchange_pref).lower())
+                except ValueError:
+                    logger.warning(
+                        "Unsupported exchange '%s'. Falling back to paper trading.",
+                        exchange_pref,
+                    )
+                    exchange_type = ExchangeType.PAPER
+
                 # Create configuration for this specific model
                 config = AutoTradingConfig(
                     initial_capital=trading_request.initial_capital or 100000,
                     crypto_symbols=trading_request.crypto_symbols,
                     use_ai_signals=trading_request.use_ai_signals or False,
                     agent_model=model_id,
+                    exchange=exchange_type,
                 )
 
+                # Initialize exchange adapter if configured
+                exchange_adapter = self._create_exchange_adapter(config)
+                if exchange_adapter:
+                    try:
+                        await exchange_adapter.connect()
+                    except Exception as exc:
+                        logger.error(
+                            "Failed to connect to %s exchange: %s",
+                            config.exchange.value,
+                            exc,
+                        )
+                        exchange_adapter = None
+
                 # Initialize executor
-                executor = TradingExecutor(config)
+                executor = TradingExecutor(config, exchange=exchange_adapter)
 
                 # Initialize AI signal generator if enabled
                 ai_signal_generator = self._initialize_ai_signal_generator(config)
@@ -922,6 +1223,7 @@ class AutoTradingAgent(BaseAgent):
                     "config": config,
                     "executor": executor,
                     "ai_signal_generator": ai_signal_generator,
+                    "exchange_adapter": exchange_adapter,
                     "active": True,
                     "created_at": datetime.now(),
                     "check_count": 0,
@@ -932,6 +1234,7 @@ class AutoTradingAgent(BaseAgent):
 
                 # Display configuration for this instance
                 ai_status = "✅ Enabled" if config.use_ai_signals else "❌ Disabled"
+                exchange_name = config.exchange.value.upper()
                 config_message = (
                     f"✅ **Trading Instance Created**\n\n"
                     f"**Instance ID:** `{instance_id}`\n"
@@ -939,6 +1242,7 @@ class AutoTradingAgent(BaseAgent):
                     f"**Configuration:**\n"
                     f"- Trading Symbols: {', '.join(config.crypto_symbols)}\n"
                     f"- Initial Capital: ${config.initial_capital:,.2f}\n"
+                    f"- Exchange: {exchange_name}\n"
                     f"- Check Interval: {config.check_interval}s (1 minute)\n"
                     f"- Risk Per Trade: {config.risk_per_trade * 100:.1f}%\n"
                     f"- Max Positions: {config.max_positions}\n"

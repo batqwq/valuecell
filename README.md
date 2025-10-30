@@ -67,8 +67,8 @@ Welcome to join our Discord community to share feedback and issues you encounter
 
 
 ## Multi-Agent System
-- **DeepResearch Agent**: Automatically retrieve and analyze fundamental documents to generate accurate data insights and interpretable summaries
-- **Auto Trading Agent**: Support for multiple crypto assets and AI-powered trading strategies, creating automated trading based on technical indicators
+- **DeepResearch Agent**: Automatically retrieve and analyze SEC filings to generate accurate data insights and interpretable summaries. Runs with a scheduled Grok-4-Fast watcher (`make searchXagent`) that pulls the latest crypto-market chatter from X (Twitter) and the wider web every 10 minutes (requires `XAI_API_KEY`).
+- **Auto Trading Agent**: Multiple crypto assets and AI-powered trading strategies with OKX live trading support via CCXT (plus paper trading)
 - **Trading Agents**: Agents work for market analysis, sentiment analysis, news analysis, and fundamentals analysis 
 - **AI-Hedge-Fund**: Agents collaborate to provide comprehensive financial insights
 - **Others**: More agents are in planning...

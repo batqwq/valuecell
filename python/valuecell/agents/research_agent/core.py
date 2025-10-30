@@ -32,6 +32,16 @@ class ResearchAgent(BaseAgent):
             fetch_event_sec_filings,
             fetch_ashare_filings,
             web_search,
+            # Grok-4-Fast credible search tool
+            # Command name: searchXagent
+            # Usage: searchXagent(custom_query: Optional[str] = None, immediate: bool = True)
+            # When immediate=True, performs a real-time fetch and writes into knowledge base.
+            # Otherwise, acknowledges and relies on the periodic watcher to run in <=10 minutes.
+            # (No investment advice; information search engine only.)
+            __import__(
+                "valuecell.agents.research_agent.sources",
+                fromlist=["searchXagent"],
+            ).searchXagent,
         ]
         self.knowledge_research_agent = Agent(
             model=model_utils_mod.get_model_for_agent("research_agent"),

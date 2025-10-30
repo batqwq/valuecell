@@ -6,19 +6,18 @@ import SvgIcon from "@/components/valuecell/svg-icon";
 export const agentSuggestions: AgentSuggestion[] = [
   {
     id: "ResearchAgent",
-    title: "Deep Research",
+    title: "深度研究",
     icon: <SvgIcon name={ResearchReport} />,
-    description:
-      "Analyze SEC filings to generate in-depth stock interpretation reports.",
+    description: "深入解析上市公司披露与新闻，生成详尽的研究报告。",
     bgColor:
       "bg-gradient-to-r from-[#FFFFFF]/70 from-[5.05%] to-[#E7EFFF]/70 to-[100%]",
     decorativeGraphics: <img src={IconGroupPng} alt="IconGroup" />,
   },
   {
     id: "AutoTradingAgent",
-    title: "Auto Trading",
+    title: "自动交易",
     icon: <SvgIcon name={AutoTrade} />,
-    description: "multiple crypto assets and AI-powered trading strategies",
+    description: "多资产量化策略与 AI 实盘执行，支持模拟与真仓切换。",
     bgColor:
       "bg-gradient-to-r from-[#FFFFFF]/70 from-[5.05%] to-[#EAE8FF]/70 to-[100%]",
     decorativeGraphics: <img src={TrendPng} alt="Trend" />,

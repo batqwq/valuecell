@@ -67,9 +67,9 @@ ValueCell 是一個社群驅動的多智能體金融應用產品，我們的計�
 
 
 ## 多智能體系統
-- **DeepResearch Agent**：獲取並分析股票的基本面文件，輸出準確的數據與可解釋的總結
-- **Auto Trading Agent**：支援多種加密資產與 AI 自動交易策略，依據技術指標建立自動化交易
-- **Trading Agents**: 專責市場分析、情緒分析、新聞分析與基本面分析的智能體協同運作
+- **DeepResearch Agent**：獲取並分析股票的 SEC 文件，輸出準確的數據與可解釋的總結。可透過 `make searchXagent` 啟動 Grok-4-Fast 定時巡檢（需設定 `XAI_API_KEY`），每 10 分鐘抓取一次 X（Twitter）及網路上的最新加密貨幣市場動態並寫入知識庫。
+- **Auto Trading Agent**：支援多種加密資產與 AI 自動交易策略，透過 CCXT 連接 OKX 實盤／模擬盤
+**Trading Agents**: 專責市場分析、情緒分析、新聞分析與基本面分析的智能體協同運作
 - **AI-Hedge-Fund**：智能體協作提供全面的金融洞見
 - **其他智能體**：更多智能體正在規劃中...
 

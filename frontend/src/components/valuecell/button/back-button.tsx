@@ -14,7 +14,7 @@ function BackButton({ className, ...props }: ComponentProps<"button">) {
       onClick={() => navigate(-1)}
       {...props}
     >
-      <ArrowLeft className="h-4 w-4" /> Back
+      <ArrowLeft className="h-4 w-4" /> 返回
     </Button>
   );
 }

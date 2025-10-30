@@ -16,6 +16,7 @@ from .models import (
 )
 from .position_manager import PositionManager
 from .trade_recorder import TradeRecorder
+from .exchanges import ExchangeBase, ExchangeType
 
 logger = logging.getLogger(__name__)
 
@@ -30,21 +31,108 @@ class TradingExecutor:
     - Cash management (via PositionManager)
     """
 
-    def __init__(self, config: AutoTradingConfig):
+    def __init__(
+        self,
+        config: AutoTradingConfig,
+        exchange: Optional[ExchangeBase] = None,
+    ):
         """
         Initialize trading executor.
 
         Args:
             config: Auto trading configuration
+            exchange: Optional exchange adapter for live trading
         """
         self.config = config
         self.initial_capital = config.initial_capital
+        self.exchange = exchange
 
         # Use specialized modules
         self._position_manager = PositionManager(config.initial_capital)
         self._trade_recorder = TradeRecorder()
 
-    def execute_trade(
+    def _should_use_live_exchange(self) -> bool:
+        """Return True when a live exchange adapter is available."""
+        return (
+            self.exchange is not None
+            and self.exchange.exchange_type != ExchangeType.PAPER
+        )
+
+    async def _submit_live_order(
+        self,
+        symbol: str,
+        side: str,
+        trade_details: Dict[str, Any],
+        indicators: TechnicalIndicators,
+        *,
+        trade_type: Optional[TradeType] = None,
+        is_close: bool = False,
+    ) -> None:
+        """Submit order to live exchange and annotate trade details."""
+        if not self._should_use_live_exchange() or not self.exchange:
+            return
+
+        quantity = abs(float(trade_details.get("quantity") or 0.0))
+        if quantity <= 0:
+            logger.warning("Skipping live order for %s due to zero quantity", symbol)
+            return
+
+        # Try to conform to exchange precision/limits
+        try:
+            limits = await self.exchange.get_trading_limits(symbol)
+            amt_prec = limits.get("amount_precision")
+            min_amt = limits.get("min_amount") or 0.0
+            max_amt = limits.get("max_amount") or 0.0
+            if isinstance(amt_prec, (int, float)) and amt_prec > 0:
+                # amt_prec may be decimal places (e.g., 3). Round accordingly
+                decimals = int(amt_prec) if amt_prec >= 1 else 8
+                quantity = round(quantity, decimals)
+            if min_amt and quantity < min_amt:
+                quantity = float(min_amt)
+            if max_amt and max_amt > 0 and quantity > max_amt:
+                quantity = float(max_amt)
+        except Exception:
+            # Ignore precision errors, rely on exchange validation
+            pass
+
+        # Compute OKX-specific params (posSide, reduceOnly) if applicable
+        params: Dict[str, Any] = {}
+        desired_side = side
+        if self.config.exchange == ExchangeType.OKX and trade_type is not None:
+            pos_side = "long" if trade_type == TradeType.LONG else "short"
+            params["posSide"] = pos_side
+            if is_close:
+                params["reduceOnly"] = True
+
+            # For derivatives on OKX, opening short uses side=sell, closing short uses side=buy
+            # Opening long uses side=buy, closing long uses side=sell
+            if trade_type == TradeType.LONG:
+                desired_side = "sell" if is_close else "buy"
+            else:  # SHORT
+                desired_side = "buy" if is_close else "sell"
+
+        try:
+            order = await self.exchange.place_order(
+                symbol=symbol,
+                side=desired_side,
+                quantity=quantity,
+                price=None,  # Market execution by default
+                order_type="market",
+                params=params,
+            )
+            trade_details["exchange_order_id"] = order.order_id
+            trade_details["exchange_status"] = order.status.value
+            trade_details["exchange_symbol"] = order.symbol
+            trade_details["exchange_price"] = order.price or indicators.close_price
+            logger.info(
+                "Live order submitted on %s: %s",
+                self.exchange.exchange_type.value,
+                order.order_id,
+            )
+        except Exception as exc:
+            logger.error("Live order submission failed for %s: %s", symbol, exc)
+
+    async def execute_trade(
         self,
         symbol: str,
         action: TradeAction,
@@ -68,11 +156,31 @@ class TradingExecutor:
             timestamp = datetime.now(timezone.utc)
 
             if action == TradeAction.BUY:
-                return self._execute_buy(symbol, trade_type, current_price, timestamp)
+                trade_details = self._execute_buy(
+                    symbol, trade_type, current_price, timestamp
+                )
+                side = "buy"
+                is_close = False
             elif action == TradeAction.SELL:
-                return self._execute_sell(symbol, trade_type, current_price, timestamp)
+                trade_details = self._execute_sell(
+                    symbol, trade_type, current_price, timestamp
+                )
+                side = "sell"
+                is_close = True
+            else:
+                return None
 
-            return None
+            if trade_details and self._should_use_live_exchange():
+                await self._submit_live_order(
+                    symbol=symbol,
+                    side=side,
+                    trade_details=trade_details,
+                    indicators=indicators,
+                    trade_type=trade_type,
+                    is_close=is_close,
+                )
+
+            return trade_details
 
         except Exception as e:
             logger.error(f"Failed to execute trade for {symbol}: {e}")

@@ -58,7 +58,7 @@ const ChatConversationAreaContent: FC<ChatConversationAreaProps> = ({
       <>
         <ChatConversationHeader agent={agent} />
         <ChatWelcomeScreen
-          title={`Welcome to ${agent.display_name}!`}
+          title={`欢迎使用 ${agent.display_name}`}
           inputValue={inputValue}
           onInputChange={handleInputChange}
           onSendMessage={handleSendMessage}
@@ -85,7 +85,7 @@ const ChatConversationAreaContent: FC<ChatConversationAreaProps> = ({
           value={inputValue}
           onChange={handleInputChange}
           onSend={handleSendMessage}
-          placeholder="Type your message..."
+          placeholder="请输入消息..."
           disabled={isStreaming}
           variant="chat"
         />

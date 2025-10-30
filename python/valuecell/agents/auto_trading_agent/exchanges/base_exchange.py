@@ -4,9 +4,10 @@ import logging
 from abc import ABC, abstractmethod
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
-from ..models import TradeType
+if TYPE_CHECKING:  # pragma: no cover - type checking only
+    from ..models import TradeType
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +17,7 @@ class ExchangeType(str, Enum):
 
     PAPER = "paper"  # Simulated trading
     BINANCE = "binance"  # Binance exchange
+    OKX = "okx"  # OKX exchange
     BYBIT = "bybit"  # Bybit exchange (future support)
     COINBASE = "coinbase"  # Coinbase (future support)
 
@@ -42,7 +44,7 @@ class Order:
         quantity: float,
         price: float,
         order_type: str = "limit",  # "limit", "market", etc.
-        trade_type: Optional[TradeType] = None,
+        trade_type: Optional["TradeType"] = None,
     ):
         self.order_id = order_id
         self.symbol = symbol

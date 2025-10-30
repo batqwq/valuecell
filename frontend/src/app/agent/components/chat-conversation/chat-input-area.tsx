@@ -20,7 +20,7 @@ const ChatInputArea: FC<ChatInputAreaProps> = ({
   onChange,
   onSend,
   onKeyDown,
-  placeholder = "Type your message...",
+  placeholder = "输入消息...",
   disabled = false,
   className,
   variant = "chat",
@@ -66,7 +66,7 @@ const ChatInputArea: FC<ChatInputAreaProps> = ({
         className="size-8 cursor-pointer self-end rounded-full"
         onClick={handleSend}
         disabled={disabled || !value.trim()}
-        aria-label="Send message"
+        aria-label="发送消息"
       >
         <ArrowUp size={16} className="text-white" />
       </Button>

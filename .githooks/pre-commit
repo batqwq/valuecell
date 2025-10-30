@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Simple sensitive token guard for staged changes.
+# Install with: git config core.hooksPath .githooks
+
+RED='\033[0;31m'
+NC='\033[0m'
+
+exit_with_msg() {
+  echo -e "${RED}[PRE-COMMIT BLOCKED]${NC} $1" 1>&2
+  exit 1
+}
+
+# Get staged files (added/modified/copied)
+mapfile -t files < <(git diff --cached --name-only --diff-filter=ACM | sed '/^$/d')
+[[ ${#files[@]} -eq 0 ]] && exit 0
+
+# File allowlist (extensions)
+allow_exts='(env|py|ts|tsx|js|json|toml|yaml|yml|sh|md|cfg|ini)'
+
+# Patterns considered sensitive
+patterns=(
+  'OPENAI_API_KEY'
+  'OPENROUTER_API_KEY'
+  'XAI_API_KEY'
+  'TELEGRAM_BOT_TOKEN'
+  'OKX_API_KEY'
+  'OKX_SECRET'
+  'OKX_PASSPHRASE'
+  'BEGIN RSA PRIVATE KEY'
+  'BEGIN PRIVATE KEY'
+  'sk-[A-Za-z0-9_-]+'
+)
+
+found=false
+for f in "${files[@]}"; do
+  # Skip deleted files and binaries
+  [[ ! -f "$f" ]] && continue
+  # Limit to known text file types
+  if ! [[ "$f" =~ \.${allow_exts}$ ]]; then
+    continue
+  fi
+  content=$(git show ":$f" | sed -e 's/\r$//')
+  for pat in "${patterns[@]}"; do
+    if grep -E -q "$pat" <<<"$content"; then
+      echo "Sensitive pattern matched in $f -> $pat"
+      found=true
+    fi
+  done
+done
+
+if [[ "$found" == true ]]; then
+  exit_with_msg "检测到疑似令牌/密钥。请移除或改为占位符后再提交。\n提示：将实际值放入 .env，提交 .env.example 占位配置。"
+fi
+
+exit 0
+

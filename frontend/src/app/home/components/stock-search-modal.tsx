@@ -61,16 +61,16 @@ const StockItem = ({ stock }: { stock: Stock }) => {
         {isPendingAddStockToWatchlist && (
           <>
             <Spinner className="size-5" />
-            Watching...
+            添加中...
           </>
         )}
         {!isStockInWatchlist && (
           <>
             <Plus className="size-5" />
-            Watchlist
+            加入自选
           </>
         )}
-        {isStockInWatchlist && <>Watched</>}
+        {isStockInWatchlist && <>已在自选</>}
       </Button>
     </div>
   );
@@ -92,7 +92,7 @@ export default function StockSearchModal({ children }: StockSearchModalProps) {
       >
         <header className="flex items-center justify-between">
           <DialogTitle className="font-semibold text-2xl text-neutral-900">
-            Stock Search
+            搜索股票
           </DialogTitle>
           <DialogClose asChild>
             <Button size="icon" variant="ghost" className="cursor-pointer">
@@ -106,7 +106,7 @@ export default function StockSearchModal({ children }: StockSearchModalProps) {
           <Search className="size-5 text-neutral-400" />
           <Input
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search for stock name or code"
+            placeholder="输入股票名称或代码"
             className="border-none bg-transparent p-0 text-neutral-900 text-sm shadow-none placeholder:text-neutral-400 focus-visible:ring-0 focus-visible:ring-offset-0"
           />
         </div>
@@ -115,7 +115,7 @@ export default function StockSearchModal({ children }: StockSearchModalProps) {
         <ScrollContainer>
           {isLoading ? (
             <p className="p-4 text-center text-neutral-400 text-sm">
-              Searching...
+              正在搜索...
             </p>
           ) : stockList && stockList.length > 0 ? (
             <div className="rounded-lg bg-white py-2">
@@ -129,7 +129,7 @@ export default function StockSearchModal({ children }: StockSearchModalProps) {
             stockList &&
             stockList.length === 0 && (
               <p className="p-4 text-center text-neutral-400 text-sm">
-                No related stocks found
+                未找到相关股票
               </p>
             )
           )}

@@ -5,6 +5,7 @@ import createSvgSpritePlugin from "vite-plugin-svg-sprite";
 import tsconfigPaths from "vite-tsconfig-paths";
 
 const host = process.env.TAURI_DEV_HOST;
+const LOCAL_HOST = "127.0.0.1";
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
@@ -75,7 +76,7 @@ export default defineConfig(async () => ({
   server: {
     port: 1420,
     strictPort: true,
-    host: host || false,
+    host: host || LOCAL_HOST,
     hmr: host
       ? {
           protocol: "ws",
@@ -87,5 +88,8 @@ export default defineConfig(async () => ({
       // 3. tell Vite to ignore watching `src-tauri`
       ignored: ["**/src-tauri/**"],
     },
+  },
+  preview: {
+    host: LOCAL_HOST,
   },
 }));

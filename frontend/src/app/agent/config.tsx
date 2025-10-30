@@ -53,14 +53,14 @@ export default function AgentConfig() {
           <div className="flex items-center gap-4">
             {agentName !== "ValueCellAgent" && (
               <Button variant="secondary" onClick={handleEnableAgent}>
-                Disable
+                禁用
               </Button>
             )}
             <Link
               className="flex items-center gap-2 rounded-md bg-black px-5 py-1.5 font-semibold text-base text-white hover:bg-black/80"
               to={`/agent/${agentName}`}
             >
-              Chat <ArrowRight size={16} />
+              聊天 <ArrowRight size={16} />
             </Link>
           </div>
         ) : (
@@ -69,7 +69,7 @@ export default function AgentConfig() {
             to={`/agent/${agentName}`}
             onClick={handleEnableAgent}
           >
-            Collect and chat
+            收集并聊天
             <ArrowRight size={16} />
           </Link>
         )}
