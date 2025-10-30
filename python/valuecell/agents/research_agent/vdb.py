@@ -1,32 +1,47 @@
 """
 Vector database configuration for Research Agent.
 
-This module uses the centralized configuration system to create an embedder
-and vector database. It automatically:
-1. Selects an available provider with embedding support (OpenAI, SiliconFlow, etc.)
-2. Uses the provider's API key from .env
-3. Falls back to other providers if the primary fails
-4. Respects environment variable overrides (EMBEDDER_MODEL_ID, EMBEDDER_DIMENSION)
+This module prefers explicit EMBEDDER_* environment variables to construct an
+embedder (e.g., OpenAI embedding). When not provided, it falls back to the
+centralized provider factory which can auto-select a provider that supports
+embedding (e.g., SiliconFlow).
 
-Configuration Priority (highest to lowest):
-1. Environment Variables (EMBEDDER_MODEL_ID, EMBEDDER_DIMENSION, etc.)
-2. .env file (OPENROUTER_API_KEY, SILICONFLOW_API_KEY, etc.)
-3. YAML files (configs/agents/research_agent.yaml, configs/providers/*.yaml)
+Configuration priority:
+1) EMBEDDER_* env vars (model id / dimension / base url / api key)
+2) Centralized provider config via valuecell.utils.model
 """
 
 from agno.vectordb.lancedb import LanceDb
 from agno.vectordb.search import SearchType
 
+import os
 import valuecell.utils.model as model_utils_mod
 from valuecell.utils.db import resolve_lancedb_uri
+from agno.knowledge.embedder.openai import OpenAIEmbedder
 
-# Create embedder using the configuration system
-# This will:
-# - Check EMBEDDER_MODEL_ID env var first
-# - Auto-select provider with embedding support (e.g., SiliconFlow if SILICONFLOW_API_KEY is set)
-# - Use provider's default embedding model if not specified
-# - Fall back to other providers if primary fails
-embedder = model_utils_mod.get_embedder_for_agent("research_agent")
+def _get_embedder() -> object:
+    """Return an embedder instance.
+
+    - If EMBEDDER_API_KEY is set, construct an OpenAIEmbedder using
+      EMBEDDER_MODEL_ID / EMBEDDER_DIMENSION / EMBEDDER_BASE_URL.
+    - Otherwise, fall back to the centralized provider factory which will pick
+      a provider supporting embedding (e.g., SiliconFlow) based on available keys.
+    """
+    api_key = os.getenv("EMBEDDER_API_KEY")
+    if api_key:
+        model_id = os.getenv("EMBEDDER_MODEL_ID") or "text-embedding-3-large"
+        base_url = os.getenv("EMBEDDER_BASE_URL") or "https://api.openai.com/v1"
+        try:
+            dim = int(os.getenv("EMBEDDER_DIMENSION", "1536"))
+        except Exception:
+            dim = 1536
+        return OpenAIEmbedder(dimensions=dim, id=model_id, base_url=base_url, api_key=api_key)
+
+    # Fallback to centralized factory (auto-pick a provider with embeddings)
+    return model_utils_mod.get_embedder_for_agent("research_agent")
+
+
+embedder = _get_embedder()
 
 # Alternative usage examples:
 # embedder = get_embedder()  # Use default env key

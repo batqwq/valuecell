@@ -19,7 +19,7 @@
 ### 变更
 - 模型供应商与模型名展示逻辑文档化，确保通过 OpenRouter 使用 DeepSeek/Qwen 时，Telegram 与 Web 聊天都能正确标注“供应商/模型/开始时间/生成耗时”。
 - Telegram 连接失败提示改为中文并说明“已尝试自动启动”，同时给出手动启动命令。
-- 当模型 ID 缺失且存在 `OPENROUTER_API_KEY` 时，默认回退 `DEFAULT_CHAT_MODEL_ID`（默认 `deepseek/deepseek-v3.2-exp`），避免显示 `unknown`。
+- 当模型 ID 缺失且已配置 OpenRouter 的对话密钥时，默认回退 `DEFAULT_CHAT_MODEL_ID`（默认 `deepseek/deepseek-v3.2-exp`），避免显示 `unknown`。
 - Telegram 聊天输出全面中文化：过滤任务状态 JSON、补充中文态消息、交易实例描述/错误提示本地化，并将 HTTP 503 错误转换为中文说明。
 - `start.sh` 在启动 Telegram 轮询与 Grok watcher 前会等待后端健康检查，避免初始阶段的连接拒绝与超时日志刷屏。
 - Telegram 轮询脚本将 webhook POST 超时时间提升至 120 秒，并针对 ReadTimeout 做优雅重试，避免误报错误日志。
@@ -33,6 +33,7 @@
 - 修复 AutoTradingAgent 解析结果为字符串导致 `'str' object has no attribute 'agent_models'`：
   - `_parse_trading_request` 增强为从 LLM 文本中稳健提取/解析 JSON，兼容 `agent_model` 与 `agent_models` 两种字段，并规范 `crypto_symbols` 的类型（agent.py）。
 - AutoTradingAgent 对非交易意图的自然语言输入改为友好提示，不再报解析错误；解析失败时返回全中文说明，避免在 Telegram 中出现英文报错信息（agent.py）。
+- 修复 searchXagent 嵌入器配置报错：`vdb.py` 优先使用 `.env` 中的 `EMBEDDER_*` 显式配置（OpenAI Embedder），缺失时再回退到集中化 provider 工厂，避免误用 OpenRouter 作为嵌入提供商。
 
 ### 日志
 - Telegram 服务新增滚动日志到 `python/logs/telegram/telegram_service.log`，可通过 `TELEGRAM_LOG_FILE` 或 `VALUECELL_LOG_DIR` 覆盖路径。
