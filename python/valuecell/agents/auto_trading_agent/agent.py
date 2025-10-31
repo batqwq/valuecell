@@ -562,6 +562,12 @@ class AutoTradingAgent(BaseAgent):
             logger.info(f"Parsed trading request (structured): {trading_request}")
             return trading_request
 
+        except Exception as e:
+            logger.error(f"Failed to parse trading request: {e}")
+            raise ValueError(
+                f"Could not parse trading configuration from query: {query}"
+            )
+
     @staticmethod
     def _has_trading_intent(query: str) -> bool:
         """Heuristic check to determine whether text expresses trading intent."""
@@ -602,12 +608,6 @@ class AutoTradingAgent(BaseAgent):
             return True
 
         return False
-
-        except Exception as e:
-            logger.error(f"Failed to parse trading request: {e}")
-            raise ValueError(
-                f"Could not parse trading configuration from query: {query}"
-            )
 
     def _initialize_ai_signal_generator(
         self, config: AutoTradingConfig

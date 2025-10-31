@@ -24,7 +24,8 @@
 - `start.sh` 在启动 Telegram 轮询与 Grok watcher 前会等待后端健康检查，避免初始阶段的连接拒绝与超时日志刷屏。
 - Telegram 轮询脚本将 webhook POST 超时时间提升至 120 秒，并针对 ReadTimeout 做优雅重试，避免误报错误日志。
 - start.sh 在所有模块成功拉起后输出汇总提示（PID/访问地址），便于确认启动状态。
- - `.gitignore` 扩充：忽略 `node_modules/`、`frontend/node_modules/`、`frontend/.cache/` 与 `python/logs/`。
+- `.gitignore` 扩充：忽略 `node_modules/`、`frontend/node_modules/`、`frontend/.cache/` 与 `python/logs/`。
+- Telegram `/help` 与 `/agent` 命令增加中文智能体简介，同时提供内联按钮以快速切换目标智能体，并新增“🔄 重启所有服务”菜单项给出操作指引。
 
 ### 修复
 - LanceDB 向量库在大文本插入时偶发的 Arrow FixedSizeListType 转换报错，计划通过更稳健的 schema 与分块策略规避。

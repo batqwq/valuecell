@@ -142,6 +142,12 @@ class TelegramService:
     async def handle_update(self, update: dict) -> None:
         """Process a single Telegram Update payload."""
         try:
+            # Handle inline keyboard callbacks first
+            callback = update.get("callback_query")
+            if callback:
+                await self._handle_callback(callback)
+                return
+
             message = update.get("message") or update.get("edited_message")
             if not message:
                 # Could support callbacks, channel posts, etc. Ignore for now
@@ -201,33 +207,44 @@ class TelegramService:
                 return
             if text.startswith("/help"):
                 logger.info("执行 /help chat_id=%s", chat_id)
-                await self._send_message(
-                    chat_id,
+                help_text = (
                     "命令：\n"
-                    "/start - 开始/欢迎\n"
-                    "/help - 帮助\n"
-                    "/menu - 打开操作菜单（模拟/真仓切换）\n"
-                    "/agent <名称> - 切换目标智能体（如 ResearchAgent、AutoTradingAgent）\n"
-                    "发送任意文本将转给当前智能体处理。",
+                    "/start - 开始并查看欢迎信息\n"
+                    "/help - 查看命令说明\n"
+                    "/menu - 打开快捷菜单，快速执行切换操作\n"
+                    "/agent <名称> - 切换当前智能体，例如 /agent ResearchAgent\n"
+                    "/status - 查询自动交易状态（等同于菜单中的状态按钮）\n"
+                    "发送任意其它文本将交给当前智能体处理。\n\n"
+                    "🤖 当前可用智能体：\n"
+                    f"{self._format_agent_summary()}"
                 )
+                await self._send_message(chat_id, help_text, reply_markup=self._menu_keyboard())
                 return
             if text.startswith("/menu") or text in {"菜单", "menu", "/memu", "memu"}:
                 logger.info("打开菜单 chat_id=%s", chat_id)
                 await self._send_message(chat_id, "请选择动作：", reply_markup=self._menu_keyboard())
                 return
-            if text.startswith("/agent "):
-
+            if text.startswith("/agent"):
                 parts = text.split(maxsplit=1)
                 if len(parts) == 2 and parts[1].strip():
-                    self._chat_agent[int(chat_id)] = parts[1].strip()
+                    agent_name = parts[1].strip()
+                    self._chat_agent[int(chat_id)] = agent_name
                     logger.info(
                         "切换智能体 chat_id=%s target_agent=%s",
                         chat_id,
-                        self._chat_agent[int(chat_id)],
+                        agent_name,
                     )
-                    await self._send_message(chat_id, f"✅ Agent set to: {self._get_agent(chat_id)}")
+                    await self._send_message(
+                        chat_id,
+                        f"✅ 已切换当前智能体为：{self._get_agent(chat_id)}",
+                        reply_markup=self._menu_keyboard(),
+                    )
                 else:
-                    await self._send_message(chat_id, "Usage: /agent <AgentName>")
+                    await self._send_agent_overview(chat_id)
+                return
+
+            if text in {"/status", "status", "状态", "摘要", "📊 状态"}:
+                await self._send_status(chat_id, user_id)
                 return
 
             # Trading mode commands (paper/live)
@@ -358,6 +375,37 @@ class TelegramService:
                     await self._answer_callback(cb_id, "已取消")
                 return
 
+            if data == "restart_services":
+                restart_text = (
+                    "🔄 要重启所有服务，请在服务器上执行：\n"
+                    "`cd /opt/valuecell && ./start.sh`\n\n"
+                    "只想重启后端/智能体，可执行：\n"
+                    "`cd /opt/valuecell && ./start.sh --no-frontend`\n\n"
+                    "执行后请等待 1-2 分钟，确保服务完全启动。"
+                )
+                await self._send_message(chat_id, restart_text, reply_markup=self._menu_keyboard())
+                if cb_id:
+                    await self._answer_callback(cb_id)
+                return
+
+            if data.startswith("choose_agent:"):
+                agent = data.split(":", 1)[1].strip()
+                if agent:
+                    self._chat_agent[int(chat_id)] = agent
+                    await self._send_message(
+                        chat_id,
+                        f"✅ 已切换当前智能体为：{agent}",
+                        reply_markup=self._menu_keyboard(),
+                    )
+                if cb_id:
+                    await self._answer_callback(cb_id)
+                return
+
+            if data == "noop":
+                if cb_id:
+                    await self._answer_callback(cb_id)
+                return
+
             if cb_id:
                 await self._answer_callback(cb_id)
         except Exception as e:
@@ -395,6 +443,16 @@ class TelegramService:
             logger.info("模式切换结果 chat_id=%s length=%s", chat_id, len(text))
         for chunk in self._chunk_text(text, 3500):
             await self._send_message(chat_id, chunk)
+
+    async def _send_agent_overview(self, chat_id: int) -> None:
+        summary = self._format_agent_summary()
+        overview_text = (
+            "🤖 当前可用智能体：\n"
+            f"{summary}\n\n"
+            "提示：点击下方按钮可直接切换，也可以输入 /agent <名称> 手动切换。"
+        )
+        keyboard = self._agent_list_keyboard()
+        await self._send_message(chat_id, overview_text, reply_markup=keyboard if keyboard else None)
 
     @staticmethod
     def _response_to_text(resp: BaseResponse) -> Optional[str]:
@@ -575,7 +633,72 @@ class TelegramService:
                 [
                     {"text": "切换到真仓(OKX)", "callback_data": "switch_request:okx"},
                 ],
+                [
+                    {"text": "🔄 重启所有服务", "callback_data": "restart_services"},
+                ],
             ]
+        }
+
+    def _agent_list_keyboard(self) -> Optional[dict]:
+        agents = self._list_available_agents()
+        if not agents:
+            return {
+                "inline_keyboard": [
+                    [{"text": "暂无可选智能体", "callback_data": "noop"}],
+                ]
+            }
+        rows: List[List[dict]] = []
+        current_row: List[dict] = []
+        for agent in agents:
+            current_row.append({"text": agent, "callback_data": f"choose_agent:{agent}"})
+            if len(current_row) == 2:
+                rows.append(current_row)
+                current_row = []
+        if current_row:
+            rows.append(current_row)
+        return {"inline_keyboard": rows}
+
+    def _list_available_agents(self) -> List[str]:
+        try:
+            agents = self._orchestrator.agent_connections.list_available_agents()
+        except Exception:
+            agents = []
+        fallback = [
+            self.default_agent,
+            "ResearchAgent",
+            "AutoTradingAgent",
+            "NewsAgent",
+            "ValueCellAgent",
+        ]
+        seen: Dict[str, bool] = {}
+        ordered: List[str] = []
+        for name in agents + fallback:
+            if not name:
+                continue
+            if name in seen:
+                continue
+            seen[name] = True
+            ordered.append(name)
+        return ordered
+
+    def _format_agent_summary(self) -> str:
+        agents = self._list_available_agents()
+        if not agents:
+            return "暂无可用智能体，稍后再试。"
+        descriptions = self._agent_descriptions()
+        lines = []
+        for idx, agent in enumerate(agents, start=1):
+            desc = descriptions.get(agent, "暂无简介，欢迎直接体验。")
+            lines.append(f"{idx}. {agent} —— {desc}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _agent_descriptions() -> Dict[str, str]:
+        return {
+            "ResearchAgent": "调研分析专家，整理 SEC 等监管文件并生成结构化洞察。",
+            "AutoTradingAgent": "自动交易执行，支持模拟盘与 OKX 真仓切换，基于 AI 信号生成策略。",
+            "NewsAgent": "实时跟踪加密及传统金融快讯，提供新闻摘要与影响分析。",
+            "ValueCellAgent": "总控协调智能体，统筹多智能体任务流程。",
         }
 
     @staticmethod
